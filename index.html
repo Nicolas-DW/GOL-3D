@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang='fr'>
+<head>
+    <meta charset='UTF-8'>
+    <title>Jeu de la Vie 3D Complet</title>
+    <style>
+        body { margin:0; overflow:hidden; font-family: Arial, sans-serif; }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 100;
+            color: white;
+            background: rgba(0,0,0,0.6);
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 300px;
+        }
+        button {
+            margin: 5px;
+            padding: 5px 10px;
+            cursor: pointer;
+            background: #444;
+            color: white;
+            border: none;
+            border-radius: 3px;
+        }
+        button:hover { background: #666; }
+        .control-group { margin-bottom: 10px; border-bottom: 1px solid #555; padding-bottom: 8px; }
+        .control-group h3 { margin: 5px 0; }
+        label { display: inline-block; margin-right: 10px; }
+        select, input { margin: 5px; padding: 3px; }
+    </style>
+</head>
+<body>
+<div id="controls">
+    <div class="control-group">
+        <h3>Commandes</h3>
+        <button onclick="playPause()">Pause/Play</button>
+        <button onclick="resetGrid(true)">Réinitialiser Aléatoire</button>
+        <button onclick="resetGrid(false)">Vider Grille</button>
+    </div>
+    
+    <div class="control-group">
+        <h3>Vitesse</h3>
+        <input type="range" id="speedRange" min="50" max="1000" value="500" onchange="updateSpeed(this.value)">
+        <span id="speedValue">500 ms</span>
+    </div>
+    
+    <div class="control-group">
+        <h3>Taille de la grille</h3>
+        <select id="gridSize" onchange="changeGridSize(this.value)">
+            <option value="20">Petite (20x20)</option>
+            <option value="30" selected>Moyenne (30x30)</option>
+            <option value="50">Grande (50x50)</option>
+            <option value="70">Très grande (70x70)</option>
+        </select>
+    </div>
+    
+    <div class="control-group">
+        <h3>Configurations</h3>
+        <button onclick="loadPattern('glider')">Planeur</button>
+        <button onclick="loadPattern('gosper')">Canon à planeurs</button>
+        <button onclick="loadPattern('pulsar')">Pulsar</button>
+        <button onclick="loadPattern('pentadecathlon')">Pentadécathlon</button>
+    </div>
+</div>
+
+<script type="module">
+    import * as THREE from 'https://cdn.skypack.dev/three@0.128.0';
+    import { OrbitControls } from 'https://cdn.skypack.dev/three@0.128.0/examples/jsm/controls/OrbitControls.js';
+
+    // Variables globales
+    let playing = true;
+    let updateInterval = 500; // ms
+    let intervalId;
+    let cols = 30, rows = 30;
+    const cubeSize = 0.9;
+    const grid = [];
+    
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111122);
+    
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(30, 30, 30);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Ajout d'une grille et d'axes pour l'orientation
+    let gridHelper = new THREE.GridHelper(cols, cols);
+    scene.add(gridHelper);
+    
+    const axesHelper = new THREE.AxesHelper(5);
+    scene.add(axesHelper);
+
+    // Lumière ambiante
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+
+    // Lumière directionnelle
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(10, 20, 5);
+    scene.add(directionalLight);
+
+    // Contrôles
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+
+    function clearScene() {
+        // Supprimer tous les cubes de la scène
+        for(let x=0; x<grid.length; x++) {
+            for(let y=0; y<grid[x]?.length || 0; y++) {
+                if(grid[x][y] && grid[x][y].mesh) {
+                    scene.remove(grid[x][y].mesh);
+                }
+            }
+        }
+        
+        // Supprimer la grille d'aide
+        if (gridHelper) {
+            scene.remove(gridHelper);
+        }
+    }
+
+    function createGrid(random = true) {
+        clearScene();
+        
+        // Créer une nouvelle grille d'aide
+        gridHelper = new THREE.GridHelper(Math.max(cols, rows), Math.max(cols, rows));
+        scene.add(gridHelper);
+        
+        // Créer une nouvelle grille
+        for(let x=0; x<cols; x++){
+            grid[x]=[];
+            for(let y=0; y<rows; y++){
+                const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+                const material = new THREE.MeshPhongMaterial({ 
+                    color: 0x555555, 
+                    transparent: true, 
+                    opacity: 0.1,
+                    specular: 0xffffff,
+                    shininess: 100
+                });
+                const cube = new THREE.Mesh(geometry, material);
+                cube.position.set(x-cols/2, 0, y-rows/2);
+                scene.add(cube);
+                grid[x][y] = {
+                    alive: random ? Math.random() > 0.7 : false,
+                    mesh: cube
+                };
+            }
+        }
+        updateVisuals();
+    }
+
+    function updateVisuals() {
+        for(let x=0; x<cols; x++) {
+            for(let y=0; y<rows; y++) {
+                if (!grid[x] || !grid[x][y]) continue;
+                
+                const cell = grid[x][y];
+                cell.mesh.material.color.set(cell.alive ? 
+                    new THREE.Color(`hsl(${(x+y)*5},100%,50%)`) : 
+                    0x555555);
+                cell.mesh.material.opacity = cell.alive ? 0.9 : 0.1;
+                
+                // Animation pour les cellules vivantes
+                if(cell.alive) {
+                    cell.mesh.position.y = Math.sin(Date.now() * 0.003 + x * 0.1 + y * 0.1) * 0.3;
+                    cell.mesh.rotation.x = Date.now() * 0.001;
+                    cell.mesh.rotation.y = Date.now() * 0.001;
+                } else {
+                    cell.mesh.position.y = 0;
+                    cell.mesh.rotation.x = 0;
+                    cell.mesh.rotation.y = 0;
+                }
+            }
+        }
+    }
+
+    function updateGrid() {
+        if (!playing) return;
+        
+        const nextGrid = Array(cols).fill().map(() => Array(rows).fill().map(() => ({ alive: false })));
+        
+        for(let x=0; x<cols; x++){
+            for(let y=0; y<rows; y++){
+                if (!grid[x] || !grid[x][y]) continue;
+                
+                let neighbours = 0;
+                for(let i=-1; i<=1; i++) {
+                    for(let j=-1; j<=1; j++) {
+                        if(i===0 && j===0) continue;
+                        const nx = (x+i+cols) % cols;
+                        const ny = (y+j+rows) % rows;
+                        if (grid[nx] && grid[nx][ny]) {
+                            neighbours += grid[nx][ny].alive ? 1 : 0;
+                        }
+                    }
+                }
+
+                const cell = grid[x][y];
+                nextGrid[x][y].alive = cell.alive ? 
+                    (neighbours === 2 || neighbours === 3) : 
+                    (neighbours === 3);
+                
+                // Conserver la référence au mesh
+                nextGrid[x][y].mesh = cell.mesh;
+            }
+        }
+        
+        // Mise à jour de l'état
+        for(let x=0; x<cols; x++) {
+            for(let y=0; y<rows; y++) {
+                if (grid[x] && grid[x][y] && nextGrid[x] && nextGrid[x][y]) {
+                    grid[x][y].alive = nextGrid[x][y].alive;
+                }
+            }
+        }
+    }
+
+    // Patterns connus
+    const patterns = {
+        glider: [
+            [0, 0, 1],
+            [1, 0, 1],
+            [0, 1, 1]
+        ],
+        gosper: [
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
+            [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        ],
+        pulsar: [
+            [0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1],
+            [0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0],
+            [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0]
+        ],
+        pentadecathlon: [
+            [0, 0, 1, 0, 0, 0, 0, 1, 0, 0],
+            [1, 1, 0, 1, 1, 1, 1, 0, 1, 1],
+            [0, 0, 1, 0, 0, 0, 0, 1, 0, 0]
+        ]
+    };
+
+    // Fonctions globales exposées au HTML
+    window.resetGrid = function(random) {
+        createGrid(random);
+    };
+    
+    window.playPause = function() {
+        playing = !playing;
+    };
+    
+    window.updateSpeed = function(value) {
+        document.getElementById('speedValue').textContent = value + ' ms';
+        updateInterval = parseInt(value);
+        
+        // Réinitialiser l'intervalle
+        clearInterval(intervalId);
+        intervalId = setInterval(updateGrid, updateInterval);
+    };
+    
+    window.changeGridSize = function(size) {
+        cols = parseInt(size);
+        rows = parseInt(size);
+        createGrid(true);
+        
+        // Ajuster la position de la caméra
+        camera.position.set(cols, cols, cols);
+        controls.update();
+    };
+    
+    window.loadPattern = function(patternName) {
+        resetGrid(false); // Vider la grille
+        
+        const pattern = patterns[patternName];
+        if (!pattern) return;
+        
+        const offsetX = Math.floor(cols / 2 - pattern[0].length / 2);
+        const offsetY = Math.floor(rows / 2 - pattern.length / 2);
+        
+        for (let y = 0; y < pattern.length; y++) {
+            for (let x = 0; x < pattern[y].length; x++) {
+                const gridX = offsetX + x;
+                const gridY = offsetY + y;
+                
+                if (gridX >= 0 && gridX < cols && gridY >= 0 && gridY < rows) {
+                    grid[gridX][gridY].alive = pattern[y][x] === 1;
+                }
+            }
+        }
+        
+        updateVisuals();
+    };
+
+    createGrid();
+
+    function animate(){
+        requestAnimationFrame(animate);
+        updateVisuals();
+        controls.update();
+        renderer.render(scene, camera);
+    }
+
+    intervalId = setInterval(updateGrid, updateInterval);
+    animate();
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>
