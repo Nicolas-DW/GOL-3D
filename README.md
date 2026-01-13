@@ -52,7 +52,8 @@ Inventé par le mathématicien britannique John Conway en 1970, le Jeu de la Vie
 
 1. Clonez ce dépôt :
    ```bash
-   git clone https://github.com/votre-username/game-of-life-3d.git
+   git clone https://github.com/Nicolas-DW/GOL-3D.git
+   cd GOL-3D
    ```
 
 2. Ouvrez `index.html` dans votre navigateur, ou utilisez un serveur local :
